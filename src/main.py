@@ -4,7 +4,7 @@ import aiohttp
 from datetime import datetime
 from dotenv import load_dotenv
 
-TOKEN = load_dotenv(TOKEN)
+TOKEN = load_dotenv("TOKEN")
 N8N_PUBLIC_ENDPOINT = 'http://localhost:5678/webhook/everyone' 
 
 intents = discord.Intents.default()
