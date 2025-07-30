@@ -53,7 +53,8 @@ async def on_message(message):
 
             payload = {
                 "model": model,
-                "prompt": f"{strhistory} \n{prompt}",
+                #"prompt": f"{strhistory} \n{prompt}",
+                "prompt": prompt,
                 "stream": True
             }
             
