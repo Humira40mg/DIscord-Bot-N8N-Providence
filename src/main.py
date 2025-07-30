@@ -48,8 +48,8 @@ async def on_message(message):
     elif client.user in message.mentions :
         async with lock:
 
-            strhistory = '\n'.join(history[::-1])
-            prompt = f"{message.author.mention} : {message.content}"
+            #strhistory = '\n'.join(history[::-1])
+            prompt = f"{message.author.mention} te demande : {message.content}"
 
             payload = {
                 "model": model,
@@ -99,7 +99,7 @@ async def on_message(message):
                     await edit_task
                 except asyncio.CancelledError:
                     pass
-                history.append(f"{prompt}\n\nProvidence : {full_text}")
-                if len(history) > 5 : history.pop(0)
+                #history.append(f"{prompt}\n\nProvidence : {full_text}")
+                #if len(history) > 5 : history.pop(0)
 
 client.run(TOKEN)
