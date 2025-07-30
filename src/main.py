@@ -39,7 +39,7 @@ async def on_message(message):
                         async with session.post(N8N_ENDPOINT, json=payload) as resp:
                             if resp.status == 200:
                                 data = await resp.json()
-                                await message.reply(f"{data.get('response', 'ok')}")
+                                await message.reply(f"{data.get('output')}")
                             else:
                                 await message.reply(f"Désolé j'ai rencontré une erreur sur mon chemain. {resp.status}")
                 except Exception as e:
