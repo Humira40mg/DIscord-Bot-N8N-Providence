@@ -29,9 +29,9 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    if message.channel.id == "1398833482234466456":
-        async with lock:
-            async with message.channel.typing():
+    if message.channel.id == 1398833482234466456 or (message.content.startswith(".agent") and message.author.id == 254115104210026497):
+        async with message.channel.typing():
+            async with lock:
                 try:
                     async with aiohttp.ClientSession() as session:
                         payload = {'message': message.content, 'id': str(message.author.id) + str(datetime.now().timestamp())}
@@ -101,6 +101,6 @@ async def on_message(message):
                 except asyncio.CancelledError:
                     pass
                 history.append(f"{prompt}\n\nProvidence : {full_text}")
-                if len(history > 5) : history.pop(0)
+                if len(history) > 5 : history.pop(0)
 
 client.run(TOKEN)
