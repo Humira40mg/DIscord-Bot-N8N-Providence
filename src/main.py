@@ -1,11 +1,11 @@
 import discord
 import asyncio
 import aiohttp
-from datetime import datetime
 from dotenv import load_dotenv
 import os
 import json
 import time
+from logger import logger
 
 load_dotenv()
 
@@ -18,7 +18,8 @@ client = discord.Client(intents=intents)
 
 lock = asyncio.Lock()
 history = []
-model = "gemma3:1b"
+queue:list = []
+model = "qwen3:0.6b"
 
 @client.event
 async def on_ready():
@@ -26,15 +27,15 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    if message.author.bot:
-        return
+    if message.author == client : return
 
     if message.channel.id == 1398833482234466456 or (message.content.startswith(".agent") and message.author.id == 254115104210026497):
+        logger.info("Demande d'intervation de Providence en mode Agent.")
         async with message.channel.typing():
             async with lock:
                 try:
                     async with aiohttp.ClientSession() as session:
-                        payload = {'message': message.content, 'id': str(message.author.id) + str(datetime.now().timestamp())}
+                        payload = {'message': message.content, 'id': str(message.author.id)}
                         #TODO : logger + is typing
                         async with session.post(N8N_ENDPOINT, json=payload) as resp:
                             if resp.status == 200:
@@ -42,65 +43,87 @@ async def on_message(message):
                                 await message.reply(f"{data.get('output')}")
                             else:
                                 await message.reply(f"Désolé j'ai rencontré une erreur sur mon chemain. {resp.status}")
+                                logger.warn(f"Request Status not 200 : {resp.status}")
                 except Exception as e:
                     await message.reply(f"Erreur : {e}")
+                    logger.error(f"Erreur : {e}")
+        return
 
     elif client.user in message.mentions :
-        async with lock:
+        if message.author in queue : 
+            await message.reply("Je suis un peu surchargé peux tu patienter un peu stp ? c: (Ta réponse arrive).")
+            return
+        
+        queue.append(message.author)
+        async with message.channel.typing():
+            async with lock:
 
-            #strhistory = '\n'.join(history[::-1])
-            prompt = f"{message.author.mention} te demande : {message.content}"
+                strhistory = '\n'.join(history[::-1])
+                prompt = f"{message.author.mention} te dit : [ {message.content} ]"
 
-            payload = {
-                "model": model,
-                #"prompt": f"{strhistory} \n{prompt}",
-                "prompt": prompt,
-                "stream": True
-            }
-            
-            reply = await message.reply("*Réflexion...*")
+                payload = {
+                    "model": model,
+                    "system": "Tu t’appelles Providence." +
+                                "Tu es une intelligence artificielle intégrée à un serveur Discord, et tu participes à des conversations avec plusieurs personnes. "+
+                                "Tu dois toujours répondre de manière claire, concise et pertinente, sans jamais dépasser 2000 caractères (car c’est la limite maximale d’un message sur Discord). "+
+                                "Si tu veux dire plus, résume ou propose de continuer dans un second message. "+
+                                "Tu peux utiliser un ton amical ou neutre, selon le contexte. Ne fais jamais de réponse hors sujet ou inutilement longue.",
+                    "prompt": f"Début historique : {strhistory} Fin de l'historique\n{prompt}",
+                    "stream": True
+                }
+                
+                logger.info(f"Demande d'intervation de Providence en mode PUBLIC par {message.author.mention}")
+                reply = await message.reply("*Réflexion...*")
 
-            buffer = []  # tokens en attente d'affichage
-            full_text = ""
+                buffer = []  # tokens en attente d'affichage
+                full_text = ""
 
-            # Fonction qui update le message toutes les 0.5s
-            async def periodic_edit():
-                nonlocal full_text
-                while True:
-                    if buffer:
-                        full_text += ''.join(buffer)
-                        buffer.clear()
-                        await reply.edit(content=full_text[:2000])
-                    await asyncio.sleep(0.5)  # Ajuste selon ce que Discord tolère (~0.5-1s recommandé)
+                # Fonction qui update le message toutes les 0.5s
+                async def periodic_edit():
+                    nonlocal full_text
+                    while True:
+                        if buffer:
+                            full_text += ''.join(buffer)
+                            buffer.clear()
+                            full_text.replace("<think>", " **Raisonnement : **\n```\n")
+                            if not "</think>" in full_text:
+                                await reply.edit(content=full_text[:1995] + "\n```")
+                            else:
+                                full_text.replace("</think>", "```")
+                                await reply.edit(content=full_text[:2000])
+                        await asyncio.sleep(0.5)  # Ajuste selon ce que Discord tolère (~0.5-1s recommandé)
 
-            edit_task = asyncio.create_task(periodic_edit())
+                edit_task = asyncio.create_task(periodic_edit())
 
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(f"http://localhost:11434/api/generate", json=payload) as resp:
-                        if resp.status != 200:
-                            await reply.edit(content="Erreur lors de la génération.")
-                            return
-
-                        async for line in resp.content:
-                            if not line.strip():
-                                continue
-                            try:
-                                data = json.loads(line.decode("utf-8"))
-                                token = data.get("response", "")
-                                buffer.append(token)  # On ajoute au buffer
-                            except Exception as e:
-                                print("Erreur de parsing:", e)
-                                continue
-            finally:
-                # Attends que les derniers tokens soient affichés
-                await asyncio.sleep(1.2)
-                edit_task.cancel()
                 try:
-                    await edit_task
-                except asyncio.CancelledError:
-                    pass
-                #history.append(f"{prompt}\n\nProvidence : {full_text}")
-                #if len(history) > 5 : history.pop(0)
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(f"http://localhost:11434/api/generate", json=payload) as resp:
+                            if resp.status != 200:
+                                await reply.edit(content="Erreur lors de la génération.")
+                                logger.warn(f"Request Status not 200 : {resp.status}")
+                                return
+
+                            async for line in resp.content:
+                                if not line.strip():
+                                    continue
+                                try:
+                                    data = json.loads(line.decode("utf-8"))
+                                    token = data.get("response", "")
+                                    buffer.append(token)  # On ajoute au buffer
+                                except Exception as e:
+                                    logger.error(f"Erreur : {e}")
+                                    continue
+                finally:
+                    # Attends que les derniers tokens soient affichés
+                    await asyncio.sleep(1.2)
+                    edit_task.cancel()
+                    try:
+                        await edit_task
+                    except asyncio.CancelledError:
+                        pass
+                    history.append(f"{prompt} Tu as répondu par {full_text}")
+                    if len(history) > 5 : history.pop(0)
+                    queue.remove(message.author)
+            return
 
 client.run(TOKEN)
