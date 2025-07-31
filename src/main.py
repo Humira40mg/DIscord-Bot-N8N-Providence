@@ -50,6 +50,9 @@ async def on_message(message):
         return
 
     elif client.user in message.mentions :
+
+        global history
+
         if message.author in queue : 
             await message.reply("Je suis un peu surchargé peux tu patienter un peu stp ? c: (Ta réponse arrive).")
             return
@@ -58,24 +61,23 @@ async def on_message(message):
         async with message.channel.typing():
             async with lock:
 
-                history.append({"role": message.author.name, "message":message.content})
-                if len(history) > 5 : 
-                    history.pop(0)
-                    history.pop(0)
+                # Ajout propre dans l'historique
+                history.append({"role": "user", "content": message.content})
+                if len(history) > 10:
+                    history = history[-10:]
 
                 payload = {
                     "model": model,
                     "messages": history,
                     "stream": True
                 }
-                
-                logger.info(f"Demande d'intervation de Providence en mode PUBLIC par {message.author.mention}")
+
+                logger.info(f"Demande d'intervention de Providence en mode PUBLIC par {message.author.mention}")
                 reply = await message.reply("*Réflexion...*")
 
-                buffer = []  # tokens en attente d'affichage
+                buffer = []
                 full_text = ""
 
-                # Fonction qui update le message toutes les 0.5s
                 async def periodic_edit():
                     nonlocal full_text
                     previous_text = ""
@@ -91,25 +93,19 @@ async def on_message(message):
                                 full_text = full_text.replace("<think>", " **Raisonnement : **\n```\n", 1)
                                 markdown_open = True
 
-                            # Quand </think> arrive, on ferme le bloc
                             if markdown_open and "</think>" in full_text:
                                 full_text = full_text.replace("</think>", "```", 1)
                                 markdown_open = False
 
-                            # Éviter les edits inutiles
                             if full_text != previous_text:
-                                # Si le bloc markdown n'est pas encore fermé, on force la fermeture temporaire
-                                content = full_text
-                                if markdown_open:
-                                    content = full_text[:1995] + "\n```"
-                                else:
-                                    content = full_text[:2000]
-
-                                await reply.edit(content=content)
+                                content = full_text[:1995] + "```" if markdown_open else full_text[:2000]
+                                try:
+                                    await reply.edit(content=content)
+                                except Exception as e:
+                                    logger.warning(f"Erreur lors de l'edit : {e}")
                                 previous_text = full_text
 
                         await asyncio.sleep(0.5)
-
 
                 edit_task = asyncio.create_task(periodic_edit())
 
@@ -118,29 +114,40 @@ async def on_message(message):
                         async with session.post(f"http://localhost:11434/api/chat", json=payload) as resp:
                             if resp.status != 200:
                                 await reply.edit(content="Erreur lors de la génération.")
-                                logger.warn(f"Request Status not 200 : {resp.status}")
+                                logger.warning(f"Request Status not 200 : {resp.status}")
                                 return
 
                             async for line in resp.content:
                                 if not line.strip():
                                     continue
                                 try:
-                                    data = json.loads(line.decode("utf-8"))
-                                    token = data.get("response", "")
-                                    buffer.append(token)  # On ajoute au buffer
+                                    data = line.decode("utf-8")
+                                    if data.startswith("data: "):
+                                        data = data.removeprefix("data: ").strip()
+                                    else:
+                                        data = data.strip()
+
+                                    if data == "[DONE]":
+                                        break
+
+                                    json_data = json.loads(data)
+                                    token = json_data["message"]["content"]
+                                    buffer.append(token)
                                 except Exception as e:
-                                    logger.error(f"Erreur : {e}")
+                                    logger.error(f"Erreur de parsing JSON : {e} — ligne brute : {line}")
                                     continue
                 finally:
-                    # Attends que les derniers tokens soient affichés
                     await asyncio.sleep(1.2)
                     edit_task.cancel()
                     try:
                         await edit_task
                     except asyncio.CancelledError:
                         pass
-                    history.append({"role": "Providence", "content": full_text})
+
+                    # Historique + trim si trop long
+                    history.append({"role": "assistant", "content": full_text[:2000]})
                     queue.remove(message.author)
             return
+
 
 client.run(TOKEN)
