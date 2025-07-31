@@ -78,17 +78,38 @@ async def on_message(message):
                 # Fonction qui update le message toutes les 0.5s
                 async def periodic_edit():
                     nonlocal full_text
+                    previous_text = ""
+                    markdown_open = False
+
                     while True:
                         if buffer:
                             full_text += ''.join(buffer)
                             buffer.clear()
-                            full_text = full_text.replace("<think>", " **Raisonnement : **\n```\n")
-                            if not "</think>" in full_text:
-                                await reply.edit(content=full_text[:1995] + "\n```")
-                            else:
-                                full_text = full_text.replace("</think>", "```")
-                                await reply.edit(content=full_text[:2000])
+
+                            # Remplacer <think> une seule fois
+                            if not markdown_open and "<think>" in full_text:
+                                full_text = full_text.replace("<think>", " **Raisonnement : **\n```\n", 1)
+                                markdown_open = True
+
+                            # Quand </think> arrive, on ferme le bloc
+                            if markdown_open and "</think>" in full_text:
+                                full_text = full_text.replace("</think>", "```", 1)
+                                markdown_open = False
+
+                            # Éviter les edits inutiles
+                            if full_text != previous_text:
+                                # Si le bloc markdown n'est pas encore fermé, on force la fermeture temporaire
+                                content = full_text
+                                if markdown_open:
+                                    content = full_text[:1995] + "\n```"
+                                else:
+                                    content = full_text[:2000]
+
+                                await reply.edit(content=content)
+                                previous_text = full_text
+
                         await asyncio.sleep(0.5)
+
 
                 edit_task = asyncio.create_task(periodic_edit())
 
