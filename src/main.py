@@ -58,17 +58,14 @@ async def on_message(message):
         async with message.channel.typing():
             async with lock:
 
-                strhistory = '\n'.join(history[::-1])
-                prompt = f"{message.author.mention} te dit : [ {message.content} ]"
+                history.append({"role": message.author.name, "message":message.content})
+                if len(history) > 5 : 
+                    history.pop(0)
+                    history.pop(0)
 
                 payload = {
                     "model": model,
-                    "system": "Tu t’appelles Providence." +
-                                "Tu es une intelligence artificielle intégrée à un serveur Discord, et tu participes à des conversations avec plusieurs personnes. "+
-                                "Tu dois toujours répondre de manière claire, concise et pertinente, sans jamais dépasser 2000 caractères (car c’est la limite maximale d’un message sur Discord). "+
-                                "Si tu veux dire plus, résume ou propose de continuer dans un second message. "+
-                                "Tu peux utiliser un ton amical ou neutre, selon le contexte. Ne fais jamais de réponse hors sujet ou inutilement longue.",
-                    "prompt": f"Début historique : {strhistory} Fin de l'historique\n{prompt}",
+                    "messages": history,
                     "stream": True
                 }
                 
@@ -85,19 +82,19 @@ async def on_message(message):
                         if buffer:
                             full_text += ''.join(buffer)
                             buffer.clear()
-                            full_text.replace("<think>", " **Raisonnement : **\n```\n")
+                            full_text = full_text.replace("<think>", " **Raisonnement : **\n```\n")
                             if not "</think>" in full_text:
                                 await reply.edit(content=full_text[:1995] + "\n```")
                             else:
-                                full_text.replace("</think>", "```")
+                                full_text = full_text.replace("</think>", "```")
                                 await reply.edit(content=full_text[:2000])
-                        await asyncio.sleep(0.5)  # Ajuste selon ce que Discord tolère (~0.5-1s recommandé)
+                        await asyncio.sleep(0.5)
 
                 edit_task = asyncio.create_task(periodic_edit())
 
                 try:
                     async with aiohttp.ClientSession() as session:
-                        async with session.post(f"http://localhost:11434/api/generate", json=payload) as resp:
+                        async with session.post(f"http://localhost:11434/api/chat", json=payload) as resp:
                             if resp.status != 200:
                                 await reply.edit(content="Erreur lors de la génération.")
                                 logger.warn(f"Request Status not 200 : {resp.status}")
@@ -121,8 +118,7 @@ async def on_message(message):
                         await edit_task
                     except asyncio.CancelledError:
                         pass
-                    history.append(f"{prompt} Tu as répondu par {full_text}")
-                    if len(history) > 5 : history.pop(0)
+                    history.append({"role": "Providence", "content": full_text})
                     queue.remove(message.author)
             return
 
