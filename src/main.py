@@ -19,7 +19,7 @@ client = discord.Client(intents=intents)
 lock = asyncio.Lock()
 history = []
 queue:list = []
-model = "qwen3:0.6b"
+model = "llama3.2:3b"
 
 @client.event
 async def on_ready():
@@ -27,7 +27,7 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    if message.author == client : return
+    if message.author == client.user : return
 
     if message.channel.id == 1398833482234466456 or (message.content.startswith(".agent") and message.author.id == 254115104210026497):
         logger.info("Demande d'intervation de Providence en mode Agent.")
@@ -40,7 +40,7 @@ async def on_message(message):
                         async with session.post(N8N_ENDPOINT, json=payload) as resp:
                             if resp.status == 200:
                                 data = await resp.json()
-                                await message.reply(f"{data.get('output')}")
+                                await message.reply(data.get('output').replace('</think>\n', '```').replace('<think>', '**Raisonnement :**\n```'))
                             else:
                                 await message.reply(f"Désolé j'ai rencontré une erreur sur mon chemain. {resp.status}")
                                 logger.warn(f"Request Status not 200 : {resp.status}")
