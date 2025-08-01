@@ -20,6 +20,17 @@ lock = asyncio.Lock()
 history = []
 queue:list = []
 model = "llama3.2:3b"
+thinking = False
+
+if model.startswith("qwen"):
+    thinking = True
+
+def agentResponseFactory():
+    if thinking:
+        return lambda x: x.replace('</think>\n', '```').replace('<think>', '**Raisonnement :**\n```')
+    return lambda x: x
+
+agentFormat = agentResponseFactory()
 
 @client.event
 async def on_ready():
@@ -35,12 +46,12 @@ async def on_message(message):
             async with lock:
                 try:
                     async with aiohttp.ClientSession() as session:
-                        payload = {'message': message.content, 'id': str(message.author.id)}
-                        #TODO : logger + is typing
+                        payload = {'message': message.content.replace("<@1398831693275856997>", "Providence"), 'id': str(message.author.id)}
+
                         async with session.post(N8N_ENDPOINT, json=payload) as resp:
                             if resp.status == 200:
                                 data = await resp.json()
-                                await message.reply(data.get('output').replace('</think>\n', '```').replace('<think>', '**Raisonnement :**\n```'))
+                                await message.reply(agentFormat(data.get('output')))
                             else:
                                 await message.reply(f"Désolé j'ai rencontré une erreur sur mon chemain. {resp.status}")
                                 logger.warn(f"Request Status not 200 : {resp.status}")
@@ -62,12 +73,13 @@ async def on_message(message):
             async with lock:
 
                 # Ajout propre dans l'historique
-                history.append({"role": "user", "content": message.content})
+                history.append({"role": "user", "content": message.content.replace("<@1398831693275856997>", "Providence")})
                 if len(history) > 10:
                     history = history[-10:]
 
                 payload = {
                     "model": model,
+                    "system": "Your name is Providence. Make sure your answers are under 2000 characters.",
                     "messages": history,
                     "stream": True
                 }
@@ -80,32 +92,44 @@ async def on_message(message):
 
                 async def periodic_edit():
                     nonlocal full_text
-                    previous_text = ""
-                    markdown_open = False
+                    if thinking:
+                        previous_text = ""
+                        markdown_open = False
 
-                    while True:
-                        if buffer:
-                            full_text += ''.join(buffer)
-                            buffer.clear()
+                        while True:
+                            if buffer:
+                                full_text += ''.join(buffer)
+                                buffer.clear()
 
-                            # Remplacer <think> une seule fois
-                            if not markdown_open and "<think>" in full_text:
-                                full_text = full_text.replace("<think>", " **Raisonnement : **\n```\n", 1)
-                                markdown_open = True
+                                # Remplacer <think> une seule fois
+                                if not markdown_open and "<think>" in full_text:
+                                    full_text = full_text.replace("<think>", " **Raisonnement : **\n```\n", 1)
+                                    markdown_open = True
 
-                            if markdown_open and "</think>" in full_text:
-                                full_text = full_text.replace("</think>", "```", 1)
-                                markdown_open = False
+                                if markdown_open and "</think>" in full_text:
+                                    full_text = full_text.replace("</think>\n\n", "```", 1)
+                                    markdown_open = False
 
-                            if full_text != previous_text:
-                                content = full_text[:1995] + "```" if markdown_open else full_text[:2000]
+                                if full_text != previous_text:
+                                    content = full_text[:1995] + "```" if markdown_open else full_text[:2000]
+                                    try:
+                                        await reply.edit(content=content)
+                                    except Exception as e:
+                                        logger.warning(f"Erreur lors de l'edit : {e}")
+                                    previous_text = full_text
+
+                            await asyncio.sleep(0.5)
+                    else:
+                        while True:
+                            if buffer:
+                                full_text += ''.join(buffer)
+                                buffer.clear()
                                 try:
-                                    await reply.edit(content=content)
+                                    await reply.edit(content=full_text[:2000])
                                 except Exception as e:
                                     logger.warning(f"Erreur lors de l'edit : {e}")
-                                previous_text = full_text
+                            await asyncio.sleep(0.5)
 
-                        await asyncio.sleep(0.5)
 
                 edit_task = asyncio.create_task(periodic_edit())
 
