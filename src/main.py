@@ -46,7 +46,7 @@ async def on_message(message):
             async with lock:
                 try:
                     async with aiohttp.ClientSession() as session:
-                        payload = {'message': message.content.replace("<@1398831693275856997>", "Providence"), 'id': str(message.author.id)}
+                        payload = {'message': message.content.replace("<@1398831693275856997>", ""), 'id': str(message.author.id)}
 
                         async with session.post(N8N_ENDPOINT, json=payload) as resp:
                             if resp.status == 200:
@@ -107,7 +107,7 @@ async def on_message(message):
                                     markdown_open = True
 
                                 if markdown_open and "</think>" in full_text:
-                                    full_text = full_text.replace("</think>\n\n", "```", 1)
+                                    full_text = full_text.split("</think>\n\n")[1]
                                     markdown_open = False
 
                                 if full_text != previous_text:
