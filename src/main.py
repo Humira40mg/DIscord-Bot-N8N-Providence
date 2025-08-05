@@ -19,7 +19,7 @@ client = discord.Client(intents=intents)
 lock = asyncio.Lock()
 history = []
 queue:list = []
-model = "llama3.2:3b"
+model = "qwen3:1.7b"
 thinking = False
 
 if model.startswith("qwen"):
@@ -73,7 +73,7 @@ async def on_message(message):
             async with lock:
 
                 # Ajout propre dans l'historique
-                history.append({"role": "user", "content": message.content.replace("<@1398831693275856997>", "Providence")})
+                history.append({"role": "user", "content": message.content.replace("<@1398831693275856997>", "")})
                 if len(history) > 10:
                     history = history[-10:]
 
